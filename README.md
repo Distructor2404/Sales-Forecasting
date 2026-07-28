@@ -27,6 +27,24 @@ streamlit run app.py
 
 Opens a local dashboard to explore forecasts, compare models, and download filtered predictions.
 
+### Streamlit Community Cloud
+
+The live app reads **pre-generated files** from `outputs/` (not `data.csv`). Those files must be **committed to Git** — they are not created on Cloud.
+
+1. Run the pipeline locally once (with `data.csv` on your machine):
+   ```bash
+   PYTHONPATH=. python run_pipeline.py
+   ```
+2. Commit dashboard artifacts (~6 MB total):
+   ```bash
+   git add outputs/predictions_*.csv outputs/model_comparison.csv outputs/metrics_*.json outputs/eda/
+   git commit -m "Add pre-generated outputs for Streamlit Cloud dashboard"
+   git push
+   ```
+3. In [share.streamlit.io](https://share.streamlit.io) app settings → **Advanced settings** → set **Requirements file** to `requirements-streamlit.txt` (faster deploy; no PyTorch/LightGBM needed for the dashboard).
+
+If you see *"No prediction files found in outputs/"*, the repo is missing the CSV/JSON/PNG files above — push them and redeploy.
+
 ## Notebook
 
 ```bash
