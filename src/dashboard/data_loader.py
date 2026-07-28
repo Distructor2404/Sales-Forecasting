@@ -80,13 +80,36 @@ def load_eda_summary() -> dict:
         return json.load(f)
 
 
+def raw_data_path() -> Path:
+    return OUTPUT_DIR.parent / "data.csv"
+
+
+def raw_data_available() -> bool:
+    return raw_data_path().exists()
+
+
 def load_raw_data() -> pd.DataFrame:
     """Load full data.csv for interactive EDA in dashboard."""
-    data_path = OUTPUT_DIR.parent / "data.csv"
-    if not data_path.exists():
+    if not raw_data_available():
         return pd.DataFrame()
-    df = pd.read_csv(data_path, parse_dates=["date"])
+    df = pd.read_csv(raw_data_path(), parse_dates=["date"])
     return df.sort_values(["store_id", "sku_id", "date"]).reset_index(drop=True)
+
+
+EDA_CHART_GROUPS: dict[str, list[str]] = {
+    "Seasonality": [
+        "seasonality_total_demand",
+        "monthly_seasonality",
+        "weekday_seasonality",
+        "weekday_month_heatmap",
+        "weekend_effect",
+        "holiday_effect",
+    ],
+    "Promo & pricing": ["promo_lift", "promo_lift_by_category", "discount_vs_demand"],
+    "Stockouts": ["stockout_effect"],
+    "Heterogeneity": ["channel_heterogeneity", "category_heterogeneity", "store_volume", "country_demand"],
+    "Weather & distribution": ["weather_effects", "units_sold_distribution"],
+}
 
 
 def list_eda_images() -> list[Path]:

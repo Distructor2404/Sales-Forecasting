@@ -11,6 +11,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from src.dashboard.data_loader import (
+    EDA_CHART_GROUPS,
     MODEL_FILES,
     load_all_predictions,
     load_eda_summary,
@@ -20,6 +21,7 @@ from src.dashboard.data_loader import (
     load_raw_data,
     list_eda_images,
     output_dir,
+    raw_data_available,
 )
 
 st.set_page_config(
@@ -398,162 +400,157 @@ def cached_raw_data() -> pd.DataFrame:
     return load_raw_data()
 
 
+def _render_eda_summary(eda: dict) -> None:
+    if not eda:
+        return
+
+    st.subheader("Key findings")
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    k1.metric("Rows", f"{eda.get('n_rows', 0):,}")
+    k2.metric("Promo lift", f"{eda.get('promo_lift_mean', 0):.2f}×")
+    k3.metric("Stockout rate", f"{eda.get('stockout_rate', 0):.1%}")
+    k4.metric("Promo rate", f"{eda.get('promo_rate', 0):.1%}")
+    k5.metric("Holiday lift", f"{eda.get('holiday_lift', 0):.2f}×")
+    k6.metric(
+        "Stockout demand",
+        f"{eda.get('stockout_demand_ratio', 0):.0%}",
+        help="Stockout-day sales as % of normal days",
+    )
+
+    with st.expander("Full EDA summary (JSON)"):
+        st.json(eda)
+
+
+def _render_interactive_eda(raw: pd.DataFrame) -> None:
+    st.subheader("Interactive exploration")
+    st.caption("Filter by channel or category when `data.csv` is available")
+
+    ic1, ic2 = st.columns(2)
+    with ic1:
+        ch = st.selectbox("Filter channel", ["All"] + sorted(raw["channel"].unique()), key="eda_ch")
+    with ic2:
+        cat = st.selectbox("Filter category", ["All"] + sorted(raw["category"].unique()), key="eda_cat")
+
+    filt = raw.copy()
+    if ch != "All":
+        filt = filt[filt["channel"] == ch]
+    if cat != "All":
+        filt = filt[filt["category"] == cat]
+
+    r1, r2 = st.columns(2)
+    with r1:
+        daily = filt.groupby("date")["units_sold"].sum().reset_index()
+        fig = px.line(daily, x="date", y="units_sold", title="Total daily demand")
+        fig.update_layout(height=320)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with r2:
+        promo_df = (
+            filt.groupby("promo_flag")["units_sold"]
+            .mean()
+            .reset_index()
+            .assign(label=lambda d: d["promo_flag"].map({0: "Non-promo", 1: "Promo"}))
+        )
+        fig = px.bar(promo_df, x="label", y="units_sold", title="Promo vs non-promo", color="label")
+        fig.update_layout(height=320, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    r3, r4 = st.columns(2)
+    with r3:
+        wd = filt.groupby("weekday")["units_sold"].mean().reset_index()
+        fig = px.bar(wd, x="weekday", y="units_sold", title="By weekday (0=Mon)")
+        fig.update_layout(height=320)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with r4:
+        mo = filt.groupby(filt["date"].dt.month)["units_sold"].mean().reset_index()
+        mo.columns = ["month", "units_sold"]
+        fig = px.line(mo, x="month", y="units_sold", markers=True, title="Monthly seasonality")
+        fig.update_layout(height=320)
+        st.plotly_chart(fig, use_container_width=True)
+
+    r5, r6 = st.columns(2)
+    with r5:
+        stock = (
+            filt.groupby("stock_out_flag")["units_sold"]
+            .mean()
+            .reset_index()
+            .assign(label=lambda d: d["stock_out_flag"].map({0: "Normal", 1: "Stockout"}))
+        )
+        fig = px.bar(stock, x="label", y="units_sold", title="Stockout effect", color="label")
+        fig.update_layout(height=320, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with r6:
+        if filt["promo_flag"].sum() > 0:
+            promo_only = filt[filt["promo_flag"] == 1].copy()
+            promo_only["disc_bin"] = pd.cut(promo_only["discount_pct"], bins=5)
+            disc = promo_only.groupby("disc_bin", observed=True)["units_sold"].mean().reset_index()
+            disc["disc_bin"] = disc["disc_bin"].astype(str)
+            fig = px.bar(disc, x="disc_bin", y="units_sold", title="Demand by discount (promo days)")
+            fig.update_layout(height=320)
+            st.plotly_chart(fig, use_container_width=True)
+
+    heat = filt.pivot_table(index="weekday", columns=filt["date"].dt.month, values="units_sold", aggfunc="mean")
+    if not heat.empty:
+        fig = px.imshow(heat, labels=dict(x="Month", y="Weekday", color="Units"), title="Weekday × Month heatmap")
+        fig.update_layout(height=360)
+        st.plotly_chart(fig, use_container_width=True)
+
+    top = filt.groupby("sku_id")["units_sold"].sum().sort_values(ascending=False).head(15).reset_index()
+    fig = px.bar(top, x="sku_id", y="units_sold", title="Top 15 SKUs by total volume")
+    fig.update_layout(height=320)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_saved_eda_images(images: list[Path]) -> None:
+    st.subheader("Saved EDA charts")
+    st.caption(f"Full-dataset charts (all channels & categories) · `{output_dir() / 'eda'}`")
+
+    img_map = {p.stem: p for p in images}
+    for group_name, stems in EDA_CHART_GROUPS.items():
+        group_imgs = [img_map[s] for s in stems if s in img_map]
+        if not group_imgs:
+            continue
+        st.markdown(f"**{group_name}**")
+        cols = st.columns(2)
+        for i, img_path in enumerate(group_imgs):
+            with cols[i % 2]:
+                st.image(
+                    str(img_path),
+                    caption=img_path.stem.replace("_", " ").title(),
+                    use_container_width=True,
+                )
+
+    grouped = {s for stems in EDA_CHART_GROUPS.values() for s in stems}
+    extra = [p for p in images if p.stem not in grouped]
+    if extra:
+        st.markdown("**Other**")
+        cols = st.columns(2)
+        for i, img_path in enumerate(extra):
+            with cols[i % 2]:
+                st.image(str(img_path), caption=img_path.stem.replace("_", " ").title(), use_container_width=True)
+
+
 def render_eda(eda: dict) -> None:
     st.header("Exploratory Data Analysis")
     st.caption("Dataset patterns that drive feature engineering and model design")
 
-    raw = cached_raw_data()
+    _render_eda_summary(eda)
+
+    if raw_data_available():
+        raw = cached_raw_data()
+        if not raw.empty:
+            _render_interactive_eda(raw)
+
     images = list_eda_images()
-
-    # --- Summary KPIs ---
-    if eda:
-        st.subheader("Key findings")
-        k1, k2, k3, k4, k5, k6 = st.columns(6)
-        k1.metric("Rows", f"{eda.get('n_rows', 0):,}")
-        k2.metric("Promo lift", f"{eda.get('promo_lift_mean', 0):.2f}×")
-        k3.metric("Stockout rate", f"{eda.get('stockout_rate', 0):.1%}")
-        k4.metric("Promo rate", f"{eda.get('promo_rate', 0):.1%}")
-        k5.metric("Holiday lift", f"{eda.get('holiday_lift', 0):.2f}×")
-        k6.metric(
-            "Stockout demand",
-            f"{eda.get('stockout_demand_ratio', 0):.0%}",
-            help="Stockout-day sales as % of normal days",
-        )
-
-        with st.expander("Full EDA summary (JSON)"):
-            st.json(eda)
-
-    if raw.empty and not images:
-        st.info("Run the pipeline to generate EDA: `PYTHONPATH=. python run_pipeline.py`")
-        return
-
-    # --- Interactive charts from raw data ---
-    if not raw.empty:
-        st.subheader("Interactive exploration")
-
-        ic1, ic2 = st.columns(2)
-        with ic1:
-            ch = st.selectbox("Filter channel", ["All"] + sorted(raw["channel"].unique()), key="eda_ch")
-        with ic2:
-            cat = st.selectbox("Filter category", ["All"] + sorted(raw["category"].unique()), key="eda_cat")
-
-        filt = raw.copy()
-        if ch != "All":
-            filt = filt[filt["channel"] == ch]
-        if cat != "All":
-            filt = filt[filt["category"] == cat]
-
-        r1, r2 = st.columns(2)
-        with r1:
-            daily = filt.groupby("date")["units_sold"].sum().reset_index()
-            fig = px.line(daily, x="date", y="units_sold", title="Total daily demand")
-            fig.update_layout(height=320)
-            st.plotly_chart(fig, use_container_width=True)
-
-        with r2:
-            promo_df = (
-                filt.groupby("promo_flag")["units_sold"]
-                .mean()
-                .reset_index()
-                .assign(label=lambda d: d["promo_flag"].map({0: "Non-promo", 1: "Promo"}))
-            )
-            fig = px.bar(promo_df, x="label", y="units_sold", title="Promo vs non-promo", color="label")
-            fig.update_layout(height=320, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-        r3, r4 = st.columns(2)
-        with r3:
-            wd = filt.groupby("weekday")["units_sold"].mean().reset_index()
-            fig = px.bar(wd, x="weekday", y="units_sold", title="By weekday (0=Mon)")
-            fig.update_layout(height=320)
-            st.plotly_chart(fig, use_container_width=True)
-
-        with r4:
-            mo = filt.groupby(filt["date"].dt.month)["units_sold"].mean().reset_index()
-            mo.columns = ["month", "units_sold"]
-            fig = px.line(mo, x="month", y="units_sold", markers=True, title="Monthly seasonality")
-            fig.update_layout(height=320)
-            st.plotly_chart(fig, use_container_width=True)
-
-        r5, r6 = st.columns(2)
-        with r5:
-            stock = (
-                filt.groupby("stock_out_flag")["units_sold"]
-                .mean()
-                .reset_index()
-                .assign(label=lambda d: d["stock_out_flag"].map({0: "Normal", 1: "Stockout"}))
-            )
-            fig = px.bar(stock, x="label", y="units_sold", title="Stockout effect", color="label")
-            fig.update_layout(height=320, showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-
-        with r6:
-            if filt["promo_flag"].sum() > 0:
-                promo_only = filt[filt["promo_flag"] == 1].copy()
-                promo_only["disc_bin"] = pd.cut(promo_only["discount_pct"], bins=5)
-                disc = promo_only.groupby("disc_bin", observed=True)["units_sold"].mean().reset_index()
-                disc["disc_bin"] = disc["disc_bin"].astype(str)
-                fig = px.bar(disc, x="disc_bin", y="units_sold", title="Demand by discount (promo days)")
-                fig.update_layout(height=320)
-                st.plotly_chart(fig, use_container_width=True)
-
-        # Heatmap
-        heat = filt.pivot_table(index="weekday", columns=filt["date"].dt.month, values="units_sold", aggfunc="mean")
-        if not heat.empty:
-            fig = px.imshow(heat, labels=dict(x="Month", y="Weekday", color="Units"), title="Weekday × Month heatmap")
-            fig.update_layout(height=360)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Top SKUs for selected filters
-        top = filt.groupby("sku_id")["units_sold"].sum().sort_values(ascending=False).head(15).reset_index()
-        fig = px.bar(top, x="sku_id", y="units_sold", title="Top 15 SKUs by total volume")
-        fig.update_layout(height=320)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # --- Saved static charts from pipeline ---
     if images:
-        st.subheader("Saved EDA charts (from pipeline)")
-        st.caption(f"Files in `{output_dir() / 'eda'}`")
-
-        chart_groups = {
-            "Seasonality": [
-                "seasonality_total_demand",
-                "monthly_seasonality",
-                "weekday_seasonality",
-                "weekday_month_heatmap",
-                "weekend_effect",
-                "holiday_effect",
-            ],
-            "Promo & pricing": ["promo_lift", "promo_lift_by_category", "discount_vs_demand"],
-            "Stockouts": ["stockout_effect"],
-            "Heterogeneity": ["channel_heterogeneity", "category_heterogeneity", "store_volume", "country_demand"],
-            "Weather & distribution": ["weather_effects", "units_sold_distribution"],
-        }
-
-        img_map = {p.stem: p for p in images}
-        for group_name, stems in chart_groups.items():
-            group_imgs = [img_map[s] for s in stems if s in img_map]
-            if not group_imgs:
-                continue
-            st.markdown(f"**{group_name}**")
-            cols = st.columns(2)
-            for i, img_path in enumerate(group_imgs):
-                with cols[i % 2]:
-                    st.image(
-                        str(img_path),
-                        caption=img_path.stem.replace("_", " ").title(),
-                        use_container_width=True,
-                    )
-
-        # Any remaining images not in groups
-        grouped = {s for stems in chart_groups.values() for s in stems}
-        extra = [p for p in images if p.stem not in grouped]
-        if extra:
-            st.markdown("**Other**")
-            cols = st.columns(2)
-            for i, img_path in enumerate(extra):
-                with cols[i % 2]:
-                    st.image(str(img_path), caption=img_path.stem.replace("_", " ").title(), use_container_width=True)
+        _render_saved_eda_images(images)
+    elif not raw_data_available():
+        st.info(
+            "No EDA charts found. Run the pipeline to generate them: "
+            "`PYTHONPATH=. python run_pipeline.py`"
+        )
 
 
 def main() -> None:
