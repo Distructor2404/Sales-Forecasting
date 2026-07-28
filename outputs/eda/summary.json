@@ -1,0 +1,27 @@
+{
+  "n_rows": 1100000,
+  "date_min": "2021-01-01",
+  "date_max": "2023-12-31",
+  "n_stores": 13,
+  "n_skus": 102,
+  "n_pairs": 1005,
+  "n_countries": 7,
+  "n_cities": 9,
+  "stockout_rate": 0.030103636363636364,
+  "promo_rate": 0.08023363636363637,
+  "holiday_rate": 0.013698181818181818,
+  "avg_units_sold": 59.19634727272727,
+  "median_units_sold": 49.0,
+  "avg_discount_pct": 0.18648549123582267,
+  "promo_lift_mean": 1.886695270879414,
+  "promo_lift_median": 1.934782608695652,
+  "promo_lift_by_category": {
+    "Beverages": 2.048809978336759,
+    "Dairy": 1.6349346143023902,
+    "Home Care": 2.3132596269449275,
+    "Personal Care": 1.6717028525492759,
+    "Snacks": 1.6703314193066938
+  },
+  "stockout_demand_ratio": 0.192684202161775,
+  "holiday_lift": 1.0607852184793336
+}

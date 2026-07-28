@@ -567,7 +567,12 @@ def main() -> None:
     if not all_preds:
         st.error(
             "No prediction files found in `outputs/`. "
-            "Run: `PYTHONPATH=. python run_pipeline.py`"
+            "This dashboard reads pre-generated CSVs from the repo — it does not train models on Cloud.\n\n"
+            "**Fix (local):** run `PYTHONPATH=. python run_pipeline.py`, then commit and push:\n"
+            "- `outputs/predictions_*.csv`\n"
+            "- `outputs/model_comparison.csv`\n"
+            "- `outputs/metrics_*.json`\n"
+            "- `outputs/eda/` (PNGs + `summary.json`)"
         )
         st.stop()
 
