@@ -1,0 +1,57 @@
+data:
+  path: data.csv
+  date_col: date
+  target: units_sold
+  group_cols: [store_id, sku_id]
+  horizon: 14
+
+splits:
+  test_days: 14
+  val_days: 28
+
+features:
+  lag_days: [1, 7, 14, 28]
+  rolling_windows: [7, 14, 28]
+  history_length: 28
+
+models:
+  lightgbm:
+    n_estimators: 500
+    learning_rate: 0.05
+    num_leaves: 63
+    max_depth: -1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 50
+  xgboost:
+    n_estimators: 500
+    learning_rate: 0.05
+    num_leaves: 63
+    max_depth: -1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 50
+  catboost:
+    n_estimators: 500
+    learning_rate: 0.05
+    num_leaves: 63
+    max_depth: -1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 50
+  deep_learning:
+    hidden_size: 64
+    num_layers: 2
+    dropout: 0.2
+    batch_size: 256
+    epochs: 15
+    learning_rate: 0.001
+    patience: 5
+
+output:
+  dir: outputs
+
+production:
+  model: xgboost
+  artifacts_dir: outputs/models/production
+  predictions_path: outputs/production/predictions_latest.csv
