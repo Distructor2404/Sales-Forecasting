@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 outputs/
 
+# Dataset (too large for GitHub; keep locally or use Git LFS)
+data.csv
+data_*.csv
+
